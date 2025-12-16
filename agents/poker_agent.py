@@ -67,8 +67,9 @@ Minimum raise to: ${min_raise}
 ## Instructions
 1. Analyze the situation considering your hand strength, position, pot odds, and opponent tendencies
 2. Consider what hands opponents could have based on their profiles and actions
-3. Choose your action - IMPORTANT: You MUST pick from the valid actions listed above. If CHECK is not listed, you cannot check. If CALL is not listed, you cannot call.
-4. If raising, specify the total amount to raise TO (not the increment)
+3. You can bluff (bet/raise with weak hands to make opponents fold), especially against players with high fold rates - but use it selectively, getting caught is costly.
+4. Choose your action - IMPORTANT: You MUST pick from the valid actions listed above. If CHECK is not listed, you cannot check. If CALL is not listed, you cannot call.
+5. If raising, specify the total amount to raise TO (not the increment)
 
 Respond with your reasoning and decision."""
 
