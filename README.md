@@ -83,7 +83,3 @@ AI-Poker-Arena/
 ├── requirements.txt     # Python dependencies
 └── .env.example         # API key template
 ```
-
-## License
-
-MIT
