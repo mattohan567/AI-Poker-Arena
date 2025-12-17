@@ -16,6 +16,7 @@ class GameDatabase:
         self.conn = sqlite3.connect(str(self.db_path))
         self.conn.row_factory = sqlite3.Row
         self._create_tables()
+        self._migrate_schema()
 
     def _create_tables(self) -> None:
         """Create database tables if they don't exist."""
@@ -47,6 +48,7 @@ class GameDatabase:
                 starting_chips INTEGER,
                 final_chips INTEGER,
                 hands_won INTEGER DEFAULT 0,
+                rebuys INTEGER DEFAULT 0,
                 total_profit INTEGER,
                 FOREIGN KEY (game_id) REFERENCES games(id)
             )
@@ -144,6 +146,41 @@ class GameDatabase:
 
         self.conn.commit()
 
+    def _migrate_schema(self) -> None:
+        """Add new columns to tables if they don't exist."""
+        cursor = self.conn.cursor()
+
+        # Migrate actions table
+        cursor.execute("PRAGMA table_info(actions)")
+        existing = {row[1] for row in cursor.fetchall()}
+
+        new_cols = [
+            ("confidence", "REAL"),
+            ("position", "TEXT"),
+            ("opponent_read", "TEXT"),
+            ("latency_ms", "INTEGER"),
+            ("call_amount", "INTEGER"),
+            ("pot_size", "INTEGER"),
+            ("hand_strength", "REAL"),
+            ("hand_name", "TEXT"),
+            ("pot_odds", "REAL"),
+            ("spr", "REAL"),
+            ("effective_stack", "INTEGER"),
+        ]
+
+        for name, typ in new_cols:
+            if name not in existing:
+                cursor.execute(f"ALTER TABLE actions ADD COLUMN {name} {typ}")
+
+        # Migrate game_players table
+        cursor.execute("PRAGMA table_info(game_players)")
+        existing_gp = {row[1] for row in cursor.fetchall()}
+
+        if "rebuys" not in existing_gp:
+            cursor.execute("ALTER TABLE game_players ADD COLUMN rebuys INTEGER DEFAULT 0")
+
+        self.conn.commit()
+
     def start_game(
         self,
         num_players: int,
@@ -215,17 +252,33 @@ class GameDatabase:
         hole_cards: str = "",
         board: str = "",
         pot_before: int = 0,
+        # New metrics
+        confidence: float | None = None,
+        position: str | None = None,
+        opponent_read: str | None = None,
+        latency_ms: int | None = None,
+        call_amount: int | None = None,
+        pot_size: int | None = None,
+        hand_strength: float | None = None,
+        hand_name: str | None = None,
+        pot_odds: float | None = None,
+        spr: float | None = None,
+        effective_stack: int | None = None,
     ) -> None:
         """Log a player action."""
         cursor = self.conn.cursor()
         cursor.execute(
             """
             INSERT INTO actions (game_id, hand_id, hand_number, player_name, model_id,
-                                betting_round, action_type, amount, reasoning, hole_cards, board, pot_before)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                betting_round, action_type, amount, reasoning, hole_cards, board, pot_before,
+                                confidence, position, opponent_read, latency_ms, call_amount, pot_size,
+                                hand_strength, hand_name, pot_odds, spr, effective_stack)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (game_id, hand_id, hand_number, player_name, model_id, betting_round,
-             action_type, amount, reasoning, hole_cards, board, pot_before),
+             action_type, amount, reasoning, hole_cards, board, pot_before,
+             confidence, position, opponent_read, latency_ms, call_amount, pot_size,
+             hand_strength, hand_name, pot_odds, spr, effective_stack),
         )
         self.conn.commit()
 
@@ -274,6 +327,8 @@ class GameDatabase:
         game_id: int,
         final_chips: dict[str, int],
         hands_won: dict[str, int],
+        rebuys: dict[str, int],
+        starting_stack: int,
         api_usage: dict[str, dict],
     ) -> None:
         """End a game and record final results."""
@@ -289,23 +344,17 @@ class GameDatabase:
         )
 
         # Update player final results
+        # true_profit = final_chips - starting_chips - (rebuys * starting_stack)
         for player_name, chips in final_chips.items():
+            player_rebuys = rebuys.get(player_name, 0)
+            true_profit = chips - starting_stack - (player_rebuys * starting_stack)
             cursor.execute(
                 """
                 UPDATE game_players
-                SET final_chips = ?, hands_won = ?, total_profit = final_chips - starting_chips
+                SET final_chips = ?, hands_won = ?, rebuys = ?, total_profit = ?
                 WHERE game_id = ? AND player_name = ?
                 """,
-                (chips, hands_won.get(player_name, 0), game_id, player_name),
-            )
-            # Fix: need to calculate profit properly
-            cursor.execute(
-                """
-                UPDATE game_players
-                SET total_profit = ? - starting_chips
-                WHERE game_id = ? AND player_name = ?
-                """,
-                (chips, game_id, player_name),
+                (chips, hands_won.get(player_name, 0), player_rebuys, true_profit, game_id, player_name),
             )
 
         # Log API usage

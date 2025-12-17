@@ -18,6 +18,7 @@ from agents.memory import OpponentMemory
 from agents.poker_agent import PokerAgent
 from poker.actions import ActionType
 from poker.engine import PokerEngine
+from poker.hand_eval import evaluate_hand, evaluate_hand_strength
 from utils.costs import get_cost_tracker, reset_cost_tracker
 from utils.database import get_database
 
@@ -80,7 +81,7 @@ class GameStats:
                 "hand": hand_num,
                 "player": player_id,
                 "action": action,
-                "reasoning": reasoning[:500] if reasoning else "",
+                "reasoning": reasoning[:200] if reasoning else "",
             }
         )
 
@@ -94,7 +95,7 @@ class GameStats:
         """Log chip counts."""
         self.chip_history.append({"hand": hand_num, **chips})
 
-    def print_summary(self) -> None:
+    def print_summary(self, rebuys: dict[str, int], starting_stack: int) -> None:
         """Print game summary."""
         print("\n" + "=" * 60)
         print("GAME SUMMARY")
@@ -124,13 +125,16 @@ class GameStats:
                 if key != "hand":
                     print(f"  {key}: ${value}")
 
-            # Calculate profit/loss
-            print("\nProfit/Loss (from $1000 starting):")
+            # Calculate profit/loss (accounting for rebuys)
+            print("\nProfit/Loss (accounting for rebuys):")
             for key, value in final_chips.items():
                 if key != "hand":
-                    profit = value - 1000
+                    player_rebuys = rebuys.get(key, 0)
+                    total_invested = starting_stack + (player_rebuys * starting_stack)
+                    profit = value - total_invested
+                    rebuy_note = f" ({player_rebuys} rebuys)" if player_rebuys > 0 else ""
                     sign = "+" if profit >= 0 else ""
-                    print(f"  {key}: {sign}${profit}")
+                    print(f"  {key}: {sign}${profit}{rebuy_note}")
 
 
 def create_agent(player_name: str, model_key: str) -> PokerAgent:
@@ -284,13 +288,8 @@ def run_game(
     print(f"Hands to play: {num_hands}")
     print("=" * 60 + "\n")
 
-    # Main game loop
+    # Main game loop (cash game style - no eliminations)
     for hand_num in range(1, num_hands + 1):
-        # Check if either player is broke
-        chips = engine.get_chip_counts()
-        if any(c <= 0 for c in chips.values()):
-            print(f"\nGame over! A player is out of chips.")
-            break
 
         engine.start_new_hand()
         dealer = engine._get_dealer_id()
@@ -337,6 +336,34 @@ def run_game(
             # Log action to database
             hole_cards = " ".join(str(c) for c in game_state.hole_cards)
             board_str = " ".join(str(c) for c in game_state.community_cards)
+
+            # Compute enhanced metrics
+            hand_strength = None
+            hand_name = None
+            if game_state.community_cards:
+                hand_strength = evaluate_hand_strength(
+                    game_state.hole_cards,
+                    game_state.community_cards
+                )
+                _, hand_name = evaluate_hand(
+                    game_state.hole_cards,
+                    game_state.community_cards
+                )
+
+            # Pot odds (only when there's something to call)
+            pot_odds = None
+            if game_state.call_amount > 0:
+                pot_odds = game_state.call_amount / (game_state.pot + game_state.call_amount)
+
+            # SPR (stack-to-pot ratio)
+            spr = None
+            if game_state.pot > 0:
+                spr = game_state.player_chips / game_state.pot
+
+            # Effective stack
+            opp_chips = [o.chips for o in game_state.opponents if not o.folded]
+            effective_stack = min(game_state.player_chips, min(opp_chips)) if opp_chips else game_state.player_chips
+
             db.log_action(
                 game_id=game_id,
                 hand_id=hand_id,
@@ -350,6 +377,18 @@ def run_game(
                 hole_cards=hole_cards,
                 board=board_str,
                 pot_before=game_state.pot,
+                # New metrics
+                confidence=agent.last_confidence,
+                position=game_state.position_name,
+                opponent_read=agent.last_opponent_read,
+                latency_ms=agent.last_latency_ms,
+                call_amount=game_state.call_amount,
+                pot_size=game_state.pot,
+                hand_strength=hand_strength,
+                hand_name=hand_name,
+                pot_odds=pot_odds,
+                spr=spr,
+                effective_stack=effective_stack,
             )
 
             # Track preflop raiser
@@ -410,11 +449,25 @@ def run_game(
             # End hand in database
             db.end_hand(hand_id, result.pot, result.winners, board_str, went_to_showdown)
 
-            winner_str = ", ".join(result.winners)
             if verbose:
-                print(f"  Winner: {winner_str} wins ${result.pot}")
+                if len(result.winnings) == 1:
+                    # Single winner - simple display
+                    winner = list(result.winnings.keys())[0]
+                    amount = list(result.winnings.values())[0]
+                    print(f"  Winner: {winner} wins ${amount}")
+                else:
+                    # Multiple winners (side pots or split pot)
+                    print(f"  Winners:")
+                    for pid, amount in result.winnings.items():
+                        print(f"    {pid} wins ${amount}")
 
             stats.log_hand_result(hand_num, result.winners, result.pot)
+
+        # Auto-rebuy any broke players
+        rebought = engine.rebuy_broke_players(starting_stack)
+        for pid in rebought:
+            if verbose:
+                print(f"  💰 {pid} rebuys for ${starting_stack}")
 
         # Log chip counts
         chips = engine.get_chip_counts()
@@ -424,9 +477,12 @@ def run_game(
         if hand_num % 10 == 0:
             print(f"\n=== After {hand_num} hands ===")
             for pid, chip_count in chips.items():
-                profit = chip_count - 1000
+                player_rebuys = engine.players[pid].rebuys
+                total_invested = starting_stack + (player_rebuys * starting_stack)
+                profit = chip_count - total_invested
+                rebuy_note = f" [{player_rebuys}R]" if player_rebuys > 0 else ""
                 sign = "+" if profit >= 0 else ""
-                print(f"  {pid}: ${chip_count} ({sign}${profit})")
+                print(f"  {pid}: ${chip_count} ({sign}${profit}){rebuy_note}")
 
             # Print opponent profile evolution (simplified for multi-player)
             if num_players <= 3:
@@ -442,13 +498,15 @@ def run_game(
                                 print(f"    Aggression: {profile.aggression_factor:.1f}")
 
     # Game complete
-    stats.print_summary()
+    rebuys = {pid: player.rebuys for pid, player in engine.players.items()}
+    stats.print_summary(rebuys, starting_stack)
 
     # Print cost summary
     print("\n" + cost_tracker.get_summary())
 
     # Save final results to database
     final_chips = engine.get_chip_counts()
+    rebuys = {pid: player.rebuys for pid, player in engine.players.items()}
     hands_won = {}
     for result in stats.hand_results:
         for winner in result["winners"]:
@@ -464,7 +522,7 @@ def run_game(
             "cost": cost_tracker.estimate_cost().get(model_id, 0),
         }
 
-    db.end_game(game_id, final_chips, hands_won, api_usage)
+    db.end_game(game_id, final_chips, hands_won, rebuys, starting_stack, api_usage)
 
     # Save opponent profiles - what each agent thinks about others
     for observer_id, agent in agents.items():

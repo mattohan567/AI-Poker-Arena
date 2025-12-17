@@ -20,6 +20,7 @@ class Player(BaseModel):
     folded: bool = False
     all_in: bool = False
     has_acted_this_round: bool = False
+    rebuys: int = 0  # Track rebuys for profit calculation
 
     def reset_for_new_hand(self) -> None:
         """Reset player state for a new hand."""
@@ -83,6 +84,7 @@ class GameState(BaseModel):
     # Multi-opponent info (public)
     opponents: list[OpponentInfo]
     num_active_players: int  # Players who haven't folded
+    total_players: int  # Total players at the table
 
     # Betting info
     current_bet: int  # Current bet to call
@@ -207,6 +209,27 @@ class PokerEngine:
     def is_heads_up(self) -> bool:
         """Whether this is a heads-up (2-player) game."""
         return self.num_players == 2
+
+    def remove_eliminated_players(self) -> list[str]:
+        """Remove players with 0 chips. Returns list of eliminated player IDs."""
+        eliminated = [pid for pid in self.player_ids if self.players[pid].chips <= 0]
+        for pid in eliminated:
+            self.player_ids.remove(pid)
+            del self.players[pid]
+        # Adjust dealer index if needed
+        if self.player_ids and self.dealer_index >= len(self.player_ids):
+            self.dealer_index = 0
+        return eliminated
+
+    def rebuy_broke_players(self, starting_stack: int) -> list[str]:
+        """Rebuy any player with 0 chips. Returns list of player IDs who rebought."""
+        rebought = []
+        for pid, player in self.players.items():
+            if player.chips <= 0:
+                player.chips = starting_stack
+                player.rebuys += 1
+                rebought.append(pid)
+        return rebought
 
     def _get_dealer_id(self) -> str:
         return self.player_ids[self.dealer_index]
@@ -681,6 +704,7 @@ class PokerEngine:
             player_current_bet=player.current_bet,
             opponents=opponents,
             num_active_players=num_active,
+            total_players=self.num_players,
             current_bet=self.current_bet,
             min_raise=self.get_min_raise(),
             call_amount=call_amount,

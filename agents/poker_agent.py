@@ -3,6 +3,7 @@
 import json
 import logging
 import re
+import time
 from typing import Any
 
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -48,6 +49,7 @@ Position: {position}
 ## Game State
 Pot: ${pot} | Your Stack: ${your_stack}
 Blinds: ${sb}/${bb}
+Table Size: {total_players} players{table_type}
 Active Players: {num_active}
 Current bet to call: ${to_call}
 Minimum raise to: ${min_raise}
@@ -105,6 +107,11 @@ class PokerAgent:
         self.last_reasoning = ""
         self.cost_tracker = get_cost_tracker()
 
+        # Metrics for enhanced data collection
+        self.last_latency_ms: int = 0
+        self.last_confidence: float | None = None
+        self.last_opponent_read: str | None = None
+
         # Track if we were the preflop aggressor (for c-bet tracking)
         self._was_preflop_aggressor = False
         self._current_hand_number = 0
@@ -145,6 +152,7 @@ class PokerAgent:
         for attempt in range(MAX_RETRIES + 1):
             try:
                 prompt = self._build_prompt(game_state, valid_actions)
+                start_time = time.perf_counter()
 
                 if self._needs_manual_json_parsing():
                     # Use JSON mode with manual parsing for models without structured output
@@ -153,6 +161,9 @@ class PokerAgent:
                     parsed = self._parse_json_response(response.content)
                     self._log_usage(json_prompt, parsed)
                     self.last_reasoning = parsed.reasoning
+                    self.last_latency_ms = int((time.perf_counter() - start_time) * 1000)
+                    self.last_confidence = parsed.confidence
+                    self.last_opponent_read = parsed.opponent_read
                     return self._validate_or_fallback(parsed, valid_actions, game_state)
                 else:
                     # Use structured output for models that support it
@@ -160,6 +171,9 @@ class PokerAgent:
                     response = structured_llm.invoke(prompt)
                     self._log_usage(prompt, response)
                     self.last_reasoning = response.reasoning
+                    self.last_latency_ms = int((time.perf_counter() - start_time) * 1000)
+                    self.last_confidence = response.confidence
+                    self.last_opponent_read = response.opponent_read
                     return self._validate_or_fallback(response, valid_actions, game_state)
 
             except Exception as e:
@@ -224,6 +238,9 @@ class PokerAgent:
         # Format valid actions
         valid_actions_str = ", ".join(a.value.upper() for a in valid_actions)
 
+        # Table type indicator
+        table_type = " (HEADS-UP)" if game_state.total_players == 2 else ""
+
         return DECISION_PROMPT.format(
             hole_cards=hole_cards,
             position=position,
@@ -232,6 +249,8 @@ class PokerAgent:
             your_stack=game_state.player_chips,
             sb=game_state.small_blind,
             bb=game_state.big_blind,
+            total_players=game_state.total_players,
+            table_type=table_type,
             num_active=game_state.num_active_players,
             to_call=game_state.call_amount,
             min_raise=game_state.min_raise,
@@ -308,6 +327,11 @@ class PokerAgent:
 
     def _safe_fallback(self, valid_actions: list[ActionType]) -> PlayerAction:
         """Return the safest valid action."""
+        # Reset metrics for fallback
+        self.last_latency_ms = 0
+        self.last_confidence = None
+        self.last_opponent_read = None
+
         if ActionType.CHECK in valid_actions:
             self.last_reasoning = "Fallback: checking"
             return PlayerAction(player_id=self.player_id, action_type=ActionType.CHECK)
