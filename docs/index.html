@@ -29,7 +29,7 @@
             opacity: 0.9;
         }
         .section {
-            background: white;
+            background: rgba(255, 255, 255, 0.8);
             padding: 30px;
             border-radius: 10px;
             margin-bottom: 20px;
@@ -235,14 +235,14 @@
                 55px,
                 90px,
                 50px;
-            opacity: 0.15;
+            opacity: 0.6;
         }
     </style>
 </head>
 <body>
     <div class="header">
         <h1>LLM Poker Arena</h1>
-        <p>Analysis Report - December 23, 2025</p>
+        <p>Analysis Report - December 2025</p>
     </div>
 
     <div class="section">
@@ -833,6 +833,53 @@
             <p><strong>Expand to multi-way tables (3-6 players).</strong> Heads-up poker is a specific format that rewards aggression and wide ranges. Multi-way play introduces significantly more complexity: positional play becomes critical, hand reading across multiple opponents, pot odds calculations with multiple callers, and coalition dynamics. Testing 4-player and 6-player tables would reveal whether models that excel heads-up (like GPT-5) maintain their edge in more complex scenarios, or whether different strategies emerge.</p>
             <p><strong>Additional experiments to consider:</strong> Testing tournament formats with escalating blinds, introducing different stack depths (deep stack vs short stack play), varying the blind structure, and A/B testing prompt engineering approaches to see if strategic guidance improves model performance. We could also explore whether models can learn and adapt their strategies over time when given access to their historical performance data.</p>
             <p><strong>Track output correctness per model.</strong> Measure how reliably each model produces valid poker decisions: invalid action rates (e.g., attempting to check when only call/fold is available), fallback usage frequency, JSON parsing failures, and structured output compliance. This would reveal which models are most reliable for agentic applications requiring consistent, parseable outputs.</p>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>Tech Stack</h2>
+        <p>Built with modern Python tooling for LLM orchestration, game simulation, and data analysis.</p>
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-value" style="font-size: 1.2em;">Python</div>
+                <div class="stat-label">Core Language</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" style="font-size: 1.2em;">LangChain</div>
+                <div class="stat-label">LLM Orchestration</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" style="font-size: 1.2em;">LangGraph</div>
+                <div class="stat-label">Agent Framework</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" style="font-size: 1.2em;">Pydantic</div>
+                <div class="stat-label">Structured Output</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" style="font-size: 1.2em;">Treys</div>
+                <div class="stat-label">Hand Evaluation</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" style="font-size: 1.2em;">SQLite</div>
+                <div class="stat-label">Data Persistence</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" style="font-size: 1.2em;">W&B</div>
+                <div class="stat-label">Experiment Tracking</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" style="font-size: 1.2em;">Pandas</div>
+                <div class="stat-label">Data Analysis</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" style="font-size: 1.2em;">Plotly</div>
+                <div class="stat-label">Visualization</div>
+            </div>
+        </div>
+        <div class="analysis">
+            <p><strong>Architecture Overview:</strong> Each LLM acts as an autonomous poker agent, receiving game state as structured input and returning decisions via Pydantic-validated outputs. The poker engine (built with Treys for hand evaluation) manages game flow, betting rounds, and showdowns. All actions, reasoning, and outcomes are logged to SQLite for post-game analysis.</p>
+            <p><strong>Multi-Provider Support:</strong> The system integrates with 6 different AI providers (Anthropic, OpenAI, Google, Mistral, xAI, DeepSeek) through LangChain's unified interface, enabling fair head-to-head comparisons across frontier models.</p>
         </div>
     </div>
 

@@ -12,6 +12,17 @@ A multi-model LLM poker simulation platform that orchestrates Texas Hold'em game
 - **Weights & Biases Integration**: Optional experiment tracking with W&B for metrics visualization, confidence calibration, and cross-run comparisons
 - **Analysis Notebooks**: Jupyter notebooks for deep-dive analysis including performance metrics, playing styles, and decision quality
 
+## Tech Stack
+
+- **Python 3.x** - Core language
+- **LangChain / LangGraph** - LLM orchestration and agent framework
+- **Pydantic** - Structured output validation
+- **Treys** - Poker hand evaluation
+- **SQLite** - Game data persistence
+- **Weights & Biases** - Experiment tracking and visualization
+- **Pandas** - Data analysis
+- **Plotly** - Interactive charts and dashboards
+
 ## Supported Models
 
 | Provider | Models |
@@ -21,7 +32,7 @@ A multi-model LLM poker simulation platform that orchestrates Texas Hold'em game
 | DeepSeek | DeepSeek-chat |
 | Mistral | Mistral-large, Mistral-small |
 | xAI | Grok, Grok-noreason |
-| Google | Gemini-3-pro |
+| Google | Gemini 2.5 Flash |
 
 ## Installation
 
@@ -68,7 +79,7 @@ python main.py -n 50 -p 4 --wandb --wandb-project my-poker-study --wandb-entity 
 
 | Argument | Description | Default |
 |----------|-------------|---------|
-| `-n, --hands` | Number of hands to play | 50 |
+| `-n, --num-hands` | Number of hands to play | 50 |
 | `-p, --players` | Number of players (2-6) | 2 |
 | `--models` | Space-separated list of models | Default varies by player count |
 | `-q, --quiet` | Suppress detailed output | False |
@@ -76,11 +87,48 @@ python main.py -n 50 -p 4 --wandb --wandb-project my-poker-study --wandb-entity 
 | `--wandb-project` | W&B project name | AIPoker |
 | `--wandb-entity` | W&B entity (team or username) | None |
 
+### Running Experiments
+
+For large-scale experiments with round-robin matchups between all models:
+
+```bash
+# Run full experiment (all model pairs, 1000 hands each)
+python run_experiments.py
+
+# Resume an interrupted experiment
+python run_experiments.py --resume
+
+# Preview the experiment plan without running
+python run_experiments.py --dry-run
+
+# Check current progress
+python run_experiments.py --status
+
+# Run matchups in parallel (faster, requires more API capacity)
+python run_experiments.py --parallel 3
+```
+
+### Generating Analysis Reports
+
+After running experiments, generate an interactive HTML dashboard:
+
+```bash
+# Generate analysis report from game data
+python analyze_results.py
+
+# Custom output path
+python analyze_results.py --output my_report.html
+```
+
+The report includes model rankings, head-to-head results, playing style analysis, cost efficiency metrics, and more.
+
 ## Project Structure
 
 ```
 AI-Poker-Arena/
-├── main.py              # Entry point, game runner
+├── main.py              # Entry point, single game runner
+├── run_experiments.py   # Round-robin experiment runner (parallel, resume)
+├── analyze_results.py   # HTML dashboard generator
 ├── poker/               # Core poker engine
 │   ├── engine.py        # Texas Hold'em game logic
 │   ├── actions.py       # Action types and card models
@@ -92,9 +140,14 @@ AI-Poker-Arena/
 │   ├── database.py      # SQLite game logging
 │   ├── costs.py         # API cost tracking
 │   └── wandb_logger.py  # Weights & Biases integration
-├── analysis/            # Post-game analysis
+├── analysis/            # Post-game analysis notebooks
 │   ├── poker_analysis.ipynb    # Performance & style analysis
 │   └── hypothesis_tests.ipynb  # Statistical testing
+├── docs/                # Static site / portfolio page
+│   └── index.html       # Analysis report for GitHub Pages
+├── data/                # Generated data (gitignored)
+│   ├── games.db         # SQLite database
+│   └── experiment_state.json   # Experiment progress
 ├── requirements.txt     # Python dependencies
 └── .env.example         # API key template
 ```
