@@ -45,3 +45,15 @@ Thumbs.db
 
 # Claude Code
 CLAUDE.md
+
+# Weights & Biases
+wandb/
+
+# Data directory
+data/
+
+# Jupyter checkpoints
+.ipynb_checkpoints/
+
+# Claude Code
+.claude/

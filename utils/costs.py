@@ -4,18 +4,23 @@ from dataclasses import dataclass, field
 
 
 # Pricing per 1M tokens (as of Dec 2025)
+# Sources:
+# - Anthropic: https://platform.claude.com/docs/en/about-claude/pricing
+# - OpenAI: https://platform.openai.com/docs/pricing
+# - DeepSeek: https://api-docs.deepseek.com/quick_start/pricing/
 PRICING = {
     # OpenAI models (GPT-5 family)
+    "gpt-5": {"input": 1.25, "output": 10.00},
     "gpt-5.2": {"input": 1.75, "output": 14.00},
     "gpt-5-mini": {"input": 0.25, "output": 2.00},
     # Legacy OpenAI models
     "gpt-4o": {"input": 2.50, "output": 10.00},
     "gpt-4o-mini": {"input": 0.15, "output": 0.60},
-    # Claude models
+    # Claude 4.5 models (Nov 2025 pricing - Opus 4.5 is 67% cheaper than 4.1)
     "claude-haiku-4-5-20251001": {"input": 1.00, "output": 5.00},
     "claude-sonnet-4-5-20250929": {"input": 3.00, "output": 15.00},
-    "claude-opus-4-5-20251101": {"input": 15.00, "output": 75.00},
-    # DeepSeek models
+    "claude-opus-4-5-20251101": {"input": 5.00, "output": 25.00},
+    # DeepSeek V3.2-Exp (Sept 2025 pricing)
     "deepseek-chat": {"input": 0.28, "output": 0.42},
     # Mistral models
     "mistral-large-latest": {"input": 2.00, "output": 6.00},
@@ -24,7 +29,7 @@ PRICING = {
     "grok-4-1-fast-reasoning": {"input": 0.20, "output": 0.50},
     "grok-4-1-fast-non-reasoning": {"input": 0.20, "output": 0.50},
     # Google Gemini models
-    "gemini-3-pro-preview": {"input": 2.00, "output": 12.00},
+    "gemini-2.5-flash": {"input": 0.075, "output": 0.30},
     # Legacy model names
     "claude-sonnet-4-20250514": {"input": 3.00, "output": 15.00},
     # Legacy provider-based (fallback)

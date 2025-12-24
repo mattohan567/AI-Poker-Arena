@@ -21,6 +21,7 @@ from poker.engine import PokerEngine
 from poker.hand_eval import evaluate_hand, evaluate_hand_strength
 from utils.costs import get_cost_tracker, reset_cost_tracker
 from utils.database import get_database
+from utils.wandb_logger import WandbPokerLogger, compute_actual_stats_from_db
 
 # Load environment variables
 load_dotenv()
@@ -43,7 +44,7 @@ MODELS = {
     "grok": ("grok-4-1-fast-reasoning", "xai"),  # Fast + reasoning, cheap
     "grok-noreason": ("grok-4-1-fast-non-reasoning", "xai"),  # Fast, no reasoning
     # Google Gemini models
-    "gemini": ("gemini-3-pro-preview", "google"),
+    "gemini": ("gemini-2.5-flash", "google"),
 }
 
 # Default player configurations for different game sizes (diverse providers)
@@ -190,6 +191,9 @@ def run_game(
     num_players: int = 2,
     model_list: list[str] | None = None,
     verbose: bool = True,
+    wandb_enabled: bool = False,
+    wandb_project: str = "llm-poker-arena",
+    wandb_entity: str | None = None,
 ) -> None:
     """Run a poker game between multiple LLM players."""
 
@@ -259,6 +263,32 @@ def run_game(
 
     stats = GameStats()
 
+    # Initialize W&B logger
+    wandb_logger = WandbPokerLogger(enabled=wandb_enabled)
+    if wandb_enabled:
+        wandb_config = {
+            "num_players": num_players,
+            "num_hands": num_hands,
+            "starting_stack": starting_stack,
+            "small_blind": small_blind,
+            "big_blind": big_blind,
+            "models": {pid: agents[pid].model_id for pid in player_ids},
+            "model_list": model_list,
+        }
+        wandb_logger.init_run(
+            project=wandb_project,
+            entity=wandb_entity,
+            config=wandb_config,
+            name=f"game-{num_players}p-{'-'.join(model_list[:3])}",
+        )
+        # Register players
+        for player_id in player_ids:
+            wandb_logger.register_player(
+                player_id=player_id,
+                model_id=agents[player_id].model_id,
+                starting_stack=starting_stack,
+            )
+
     # Initialize database
     db = get_database()
     players_config = [{"name": pid, "model": agents[pid].model_id} for pid in player_ids]
@@ -310,6 +340,11 @@ def run_game(
 
             game_state = engine.get_game_state_for_player(current_player)
             valid_actions = engine.get_valid_actions(current_player)
+
+            # Skip players who are all-in or folded (no valid actions)
+            if not valid_actions:
+                engine._advance_to_next_player()
+                continue
 
             if verbose and game_state.betting_round.value != "preflop":
                 board = " ".join(str(c) for c in game_state.community_cards)
@@ -391,6 +426,20 @@ def run_game(
                 effective_stack=effective_stack,
             )
 
+            # Log action to W&B
+            wandb_logger.log_action(
+                hand_num=hand_num,
+                player_id=current_player,
+                model_id=agent.model_id,
+                action_type=action.action_type.value,
+                amount=action.amount,
+                position=game_state.position_name,
+                street=game_state.betting_round.value,
+                confidence=agent.last_confidence,
+                pot_size=game_state.pot,
+                stack_size=game_state.player_chips,
+            )
+
             # Track preflop raiser
             if (
                 game_state.betting_round.value == "preflop"
@@ -438,6 +487,17 @@ def run_game(
                 # Notify agents of showdown
                 for agent in agents.values():
                     agent.observe_showdown(result)
+
+                # Track confidence calibration for showdown hands
+                for player_id in result.revealed_hands.keys():
+                    player_agent = agents[player_id]
+                    won = player_id in result.winners
+                    if player_agent.last_confidence is not None:
+                        wandb_logger.log_confidence_outcome(
+                            model_id=player_agent.model_id,
+                            confidence=player_agent.last_confidence,
+                            won=won,
+                        )
             else:
                 # No showdown (fold)
                 # End hand tracking for opponent
@@ -463,6 +523,14 @@ def run_game(
 
             stats.log_hand_result(hand_num, result.winners, result.pot)
 
+            # Log hand result to W&B
+            wandb_logger.log_hand_result(
+                hand_num=hand_num,
+                winners=result.winners,
+                pot=result.pot,
+                went_to_showdown=went_to_showdown,
+            )
+
         # Auto-rebuy any broke players
         rebought = engine.rebuy_broke_players(starting_stack)
         for pid in rebought:
@@ -472,6 +540,11 @@ def run_game(
         # Log chip counts
         chips = engine.get_chip_counts()
         stats.log_chips(hand_num, chips)
+
+        # Update W&B with current stacks and log per-hand metrics
+        current_rebuys = {pid: engine.players[pid].rebuys for pid in player_ids}
+        wandb_logger.update_stacks(hand_num, chips, current_rebuys)
+        wandb_logger.log_hand_metrics(hand_num)
 
         # Periodic status update
         if hand_num % 10 == 0:
@@ -552,6 +625,29 @@ def run_game(
                         },
                     )
 
+                    # Log profile accuracy comparison to W&B
+                    actual_stats = compute_actual_stats_from_db(db, game_id, observed_id)
+                    wandb_logger.log_profile_comparison(
+                        observer_id=observer_id,
+                        observed_id=observed_id,
+                        estimated_vpip=profile.vpip,
+                        estimated_pfr=profile.pfr,
+                        estimated_style=profile.estimated_style,
+                        actual_vpip=actual_stats["vpip"],
+                        actual_pfr=actual_stats["pfr"],
+                        actual_style=actual_stats["estimated_style"],
+                    )
+
+    # Finalize W&B run with summary metrics
+    wandb_logger.finalize(
+        cost_tracker=cost_tracker,
+        final_chips=final_chips,
+        hands_won=hands_won,
+        rebuys=rebuys,
+        starting_stack=starting_stack,
+        total_hands=num_hands,
+    )
+
     print(f"\nGame data saved to database (Game #{game_id})")
 
 
@@ -590,6 +686,18 @@ Available models:
     parser.add_argument(
         "-q", "--quiet", action="store_true", help="Reduce output verbosity"
     )
+    parser.add_argument(
+        "--wandb", action="store_true", default=False,
+        help="Enable Weights & Biases logging (opt-in, disabled by default)"
+    )
+    parser.add_argument(
+        "--wandb-project", type=str, default="AIPoker",
+        help="W&B project name"
+    )
+    parser.add_argument(
+        "--wandb-entity", type=str, default=None,
+        help="W&B entity (team or username)"
+    )
     args = parser.parse_args()
 
     run_game(
@@ -597,6 +705,9 @@ Available models:
         num_players=args.players,
         model_list=args.models,
         verbose=not args.quiet,
+        wandb_enabled=args.wandb,
+        wandb_project=args.wandb_project,
+        wandb_entity=args.wandb_entity,
     )
 
 

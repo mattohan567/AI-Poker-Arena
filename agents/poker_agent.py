@@ -286,6 +286,10 @@ class PokerAgent:
             logger.warning(
                 f"{self.player_id} invalid action '{response.action}', using fallback"
             )
+            # Handle empty valid_actions (player is all-in/folded)
+            if not valid_actions:
+                self.last_reasoning = "No valid actions (all-in/folded)"
+                return PlayerAction(player_id=self.player_id, action_type=ActionType.CHECK)
             if ActionType.CHECK in valid_actions:
                 return PlayerAction(player_id=self.player_id, action_type=ActionType.CHECK)
             elif ActionType.CALL in valid_actions:
@@ -331,6 +335,11 @@ class PokerAgent:
         self.last_latency_ms = 0
         self.last_confidence = None
         self.last_opponent_read = None
+
+        # Handle empty valid_actions (player is all-in/folded)
+        if not valid_actions:
+            self.last_reasoning = "Fallback: no valid actions (all-in/folded)"
+            return PlayerAction(player_id=self.player_id, action_type=ActionType.CHECK)
 
         if ActionType.CHECK in valid_actions:
             self.last_reasoning = "Fallback: checking"
