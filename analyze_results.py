@@ -321,6 +321,7 @@ def compute_cost_efficiency(game_df: pd.DataFrame, cost_df: pd.DataFrame) -> pd.
         'grok-4-1-fast-reasoning': 'grok',
         'grok-4-1-fast-non-reasoning': 'grok-noreason',
         'gemini-3-pro-preview': 'gemini',
+        'gemini-2.5-flash': 'gemini',
     }
 
     cost_df = cost_df.copy()
@@ -676,6 +677,7 @@ def compute_opponent_profile_summary(profiles_df: pd.DataFrame) -> pd.DataFrame:
         'grok-4-1-fast-reasoning': 'grok',
         'grok-4-1-fast-non-reasoning': 'grok-noreason',
         'gemini-3-pro-preview': 'gemini',
+        'gemini-2.5-flash': 'gemini',
     }
 
     df = profiles_df.copy()

@@ -22,14 +22,15 @@ PRICING = {
     "claude-opus-4-5-20251101": {"input": 5.00, "output": 25.00},
     # DeepSeek V3.2-Exp (Sept 2025 pricing)
     "deepseek-chat": {"input": 0.28, "output": 0.42},
-    # Mistral models
-    "mistral-large-latest": {"input": 2.00, "output": 6.00},
+    # Mistral models (Dec 2025 - Mistral Large 2512)
+    # "mistral-large-latest": {"input": 2.00, "output": 6.00},  # Old pricing
+    "mistral-large-latest": {"input": 0.50, "output": 1.50},
     "mistral-small-latest": {"input": 0.20, "output": 0.60},
     # xAI (Grok) models
     "grok-4-1-fast-reasoning": {"input": 0.20, "output": 0.50},
     "grok-4-1-fast-non-reasoning": {"input": 0.20, "output": 0.50},
-    # Google Gemini models
-    "gemini-2.5-flash": {"input": 0.075, "output": 0.30},
+    # Google Gemini models (Dec 2025 pricing)
+    "gemini-2.5-flash": {"input": 0.30, "output": 2.50},
     # Legacy model names
     "claude-sonnet-4-20250514": {"input": 3.00, "output": 15.00},
     # Legacy provider-based (fallback)
