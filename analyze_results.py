@@ -39,6 +39,21 @@ MODEL_COLORS = {
     "gemini": "#4285F4",
 }
 
+# Map API model IDs to display names
+MODEL_ID_TO_NAME = {
+    'claude-haiku-4-5-20251001': 'haiku',
+    'claude-sonnet-4-5-20250929': 'sonnet',
+    'claude-opus-4-5-20251101': 'opus',
+    'gpt-5.2': 'gpt5',
+    'gpt-5-mini': 'gpt5-mini',
+    'deepseek-chat': 'deepseek',
+    'mistral-large-latest': 'mistral',
+    'mistral-small-latest': 'mistral-small',
+    'grok-4-1-fast-reasoning': 'grok',
+    'grok-4-1-fast-non-reasoning': 'grok-noreason',
+    'gemini-2.5-flash': 'gemini',
+}
+
 
 def get_connection():
     """Get database connection."""
@@ -110,9 +125,16 @@ def load_showdown_data() -> pd.DataFrame:
 
 
 def load_cost_data() -> pd.DataFrame:
-    """Load API cost data."""
+    """Load API cost data filtered for experiment games."""
     conn = get_connection()
-    query = "SELECT * FROM api_usage"
+    query = """
+        SELECT au.*
+        FROM api_usage au
+        JOIN games g ON au.game_id = g.id
+        WHERE g.status = 'completed'
+          AND g.num_hands = 1000
+          AND g.num_players = 2
+    """
     df = pd.read_sql_query(query, conn)
     conn.close()
     return df
@@ -166,15 +188,16 @@ def compute_model_rankings(df: pd.DataFrame) -> pd.DataFrame:
     rankings = df.groupby('model').agg({
         'profit': 'sum',
         'bb_per_100': 'mean',
-        'roi': 'mean',
+        'total_invested': 'sum',
         'hands_won': 'sum',
         'num_hands': 'sum',
         'rebuys': 'sum',
         'game_id': 'count',
     }).reset_index()
 
-    rankings.columns = ['model', 'total_profit', 'avg_bb_100', 'avg_roi',
+    rankings.columns = ['model', 'total_profit', 'avg_bb_100', 'total_invested',
                         'hands_won', 'total_hands', 'total_rebuys', 'games_played']
+    rankings['avg_roi'] = rankings['total_profit'] / rankings['total_invested']
     rankings['win_rate'] = rankings['hands_won'] / rankings['total_hands']
     rankings = rankings.sort_values('avg_bb_100', ascending=False)
 
@@ -277,7 +300,7 @@ def compute_confidence_calibration(df: pd.DataFrame, showdowns: pd.DataFrame) ->
             continue
 
         # Bin confidences
-        for conf_bin in [(0, 0.33, 'low'), (0.33, 0.66, 'medium'), (0.66, 1.0, 'high')]:
+        for conf_bin in [(0, 0.33, 'low'), (0.33, 0.66, 'medium'), (0.66, 1.01, 'high')]:
             low, high, label = conf_bin
             bin_actions = model_actions[
                 (model_actions['confidence'] >= low) &
@@ -308,24 +331,8 @@ def compute_cost_efficiency(game_df: pd.DataFrame, cost_df: pd.DataFrame) -> pd.
 
     profits = game_df.groupby('model')['profit'].sum().reset_index()
 
-    # Get costs per model_id and map to model names
-    model_id_to_name = {
-        'claude-haiku-4-5-20251001': 'haiku',
-        'claude-sonnet-4-5-20250929': 'sonnet',
-        'claude-opus-4-5-20251101': 'opus',
-        'gpt-5.2': 'gpt5',
-        'gpt-5-mini': 'gpt5-mini',
-        'deepseek-chat': 'deepseek',
-        'mistral-large-latest': 'mistral',
-        'mistral-small-latest': 'mistral-small',
-        'grok-4-1-fast-reasoning': 'grok',
-        'grok-4-1-fast-non-reasoning': 'grok-noreason',
-        'gemini-3-pro-preview': 'gemini',
-        'gemini-2.5-flash': 'gemini',
-    }
-
     cost_df = cost_df.copy()
-    cost_df['model'] = cost_df['model_id'].map(model_id_to_name)
+    cost_df['model'] = cost_df['model_id'].map(MODEL_ID_TO_NAME)
     costs = cost_df.groupby('model').agg({
         'estimated_cost': 'sum',
         'total_calls': 'sum',
@@ -355,6 +362,10 @@ def create_rankings_chart(rankings: pd.DataFrame) -> str:
         textposition='outside',
     ))
 
+    y_min = rankings['avg_bb_100'].min()
+    y_max = rankings['avg_bb_100'].max()
+    y_padding = max(abs(y_max - y_min) * 0.15, 5)
+
     fig.update_layout(
         title="Model Rankings by BB/100",
         xaxis_title="Model",
@@ -362,8 +373,7 @@ def create_rankings_chart(rankings: pd.DataFrame) -> str:
         template="plotly_white",
         height=450,
         margin=dict(t=50, b=50, l=50, r=50),
-        yaxis=dict(range=[min(rankings['avg_bb_100'].min() * 1.3, rankings['avg_bb_100'].min() - 5),
-                          max(rankings['avg_bb_100'].max() * 1.3, rankings['avg_bb_100'].max() + 5)]),
+        yaxis=dict(range=[y_min - y_padding, y_max + y_padding]),
     )
 
     return fig.to_html(full_html=False, include_plotlyjs=False)
@@ -425,6 +435,8 @@ def create_roi_chart(rankings: pd.DataFrame) -> str:
     ))
 
     roi_values = rankings['avg_roi'] * 100
+    roi_padding = max(abs(roi_values.max() - roi_values.min()) * 0.15, 10)
+
     fig.update_layout(
         title="Return on Investment by Model",
         xaxis_title="Model",
@@ -432,8 +444,7 @@ def create_roi_chart(rankings: pd.DataFrame) -> str:
         template="plotly_white",
         height=450,
         margin=dict(t=50, b=50, l=50, r=50),
-        yaxis=dict(range=[min(roi_values.min() * 1.3, roi_values.min() - 10),
-                          max(roi_values.max() * 1.3, roi_values.max() + 10)]),
+        yaxis=dict(range=[roi_values.min() - roi_padding, roi_values.max() + roi_padding]),
     )
 
     return fig.to_html(full_html=False, include_plotlyjs=False)
@@ -664,25 +675,9 @@ def compute_opponent_profile_summary(profiles_df: pd.DataFrame) -> pd.DataFrame:
     if len(profiles_df) == 0:
         return pd.DataFrame()
 
-    # Map model IDs to short names
-    model_id_to_name = {
-        'claude-haiku-4-5-20251001': 'haiku',
-        'claude-sonnet-4-5-20250929': 'sonnet',
-        'claude-opus-4-5-20251101': 'opus',
-        'gpt-5.2': 'gpt5',
-        'gpt-5-mini': 'gpt5-mini',
-        'deepseek-chat': 'deepseek',
-        'mistral-large-latest': 'mistral',
-        'mistral-small-latest': 'mistral-small',
-        'grok-4-1-fast-reasoning': 'grok',
-        'grok-4-1-fast-non-reasoning': 'grok-noreason',
-        'gemini-3-pro-preview': 'gemini',
-        'gemini-2.5-flash': 'gemini',
-    }
-
     df = profiles_df.copy()
-    df['observer'] = df['observer_model'].map(model_id_to_name).fillna(df['observer_model'])
-    df['observed'] = df['observed_model'].map(model_id_to_name).fillna(df['observed_model'])
+    df['observer'] = df['observer_model'].map(MODEL_ID_TO_NAME).fillna(df['observer_model'])
+    df['observed'] = df['observed_model'].map(MODEL_ID_TO_NAME).fillna(df['observed_model'])
 
     summary = df.groupby('observed').agg({
         'vpip': 'mean',
